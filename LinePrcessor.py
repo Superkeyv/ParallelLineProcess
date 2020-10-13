@@ -33,15 +33,6 @@ class ChunkLoader:
 
         # 用于进程间数据共享
         self.ram_cache = Queue(maxsize=1)  # 最大容量为1的队列
-        self.lock = Lock()
-
-        # 代表文件在内存中的加载状态。
-        # 0代表磁盘还没读完;
-        # 1代表磁盘已进入内存，但还没加入到ram_cache的队伍
-        # 2代表数据正在加入到ram_cache的队伍。达到最终状态，可以被用户读取(这个目的是在不加入锁的情况下构建临界区)
-        # 3代表数据已经加入到ram_cache的队伍。达到最终状态，可以被用户读取
-        self.__cache_final_flag = Value('b', 0)
-
         self.LineNum = Value('l', 0)  # 记录当前读取的行号
 
     def __read_a_chunk(self):
@@ -53,7 +44,7 @@ class ChunkLoader:
         for i in range(self.chunk_size):
             line = self.infile.readline()
             if line == '':
-                self.__cache_final_flag.value = 1
+                self.EOF = True
                 break
             self.LineNum.value += 1
 
@@ -70,18 +61,14 @@ class ChunkLoader:
         """
         while True:
             # 文件是否读取完毕
-            if self.__cache_final_flag.value is 3:
+            if self.EOF:
+                # 最后发送一个空文件作为信号，代表数据已经读完
+                self.ram_cache.put(None, block=True)  # 阻塞式等待最后一次被读取
                 break
 
             # 开始进行缓存
             tmp = self.__read_a_chunk()
-
-            if self.__cache_final_flag.value is 1:
-                self.__cache_final_flag.value = 2
             self.ram_cache.put(tmp, block=True)  # 阻塞式的数据入队
-            if self.__cache_final_flag.value is 2:
-                self.__cache_final_flag.value = 3
-
 
     def read_async(self):
         """
@@ -114,8 +101,6 @@ class ChunkLoader:
         :return: 获取行的List形式。如果读取完毕，则会返回[]
         """
         ret = []
-        if self.EOF:
-            return ret
 
         # 进行读取
         if self.use_async:
@@ -123,20 +108,15 @@ class ChunkLoader:
             if not hasattr(self, 'process'):
                 self.read_async()
 
-            # 读写临界区
-            ret = self.ram_cache.get(block=True)  # 阻塞等待加载，包括__cache_final_flag.value从 1 -> 2 阶段
+            ret = self.ram_cache.get(block=True)
 
-            # 异步模式下的数据交付完毕
-            if self.__cache_final_flag.value is 3:
+            if ret is None:
                 self.EOF = True
+                ret = []
 
         else:
             # print('read_sync')
             ret = self.read_sync()
-
-            # 同步模式下的数据交付完毕
-            if self.__cache_final_flag.value is 1:
-                self.EOF = True
 
         return ret
 
