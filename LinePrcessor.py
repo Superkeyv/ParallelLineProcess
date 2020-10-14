@@ -169,12 +169,13 @@ class ParallelLine:
         self.outfile = outfile
         self.order = order
         self.n_jobs = n_jobs
+        self.__pool_chunksize = chunk_size // n_jobs  # 将chunksize的数据均匀地划分给n_jobs个进程。
         self.__file_cache = {}  # 文件缓存。每个线程都可以创建自己的文件缓存。字典类型。通过进程号对应
 
         if self.outfile is None:
-            self._cache_mode = 'Mem'  # 如果没有打开的输出文件，将使用内存作为缓存区
+            self.__cache_mode = 'Mem'  # 如果没有打开的输出文件，将使用内存作为缓存区
         else:
-            self._cache_mode = 'File'
+            self.__cache_mode = 'File'
 
         # 初始化线程池，包括1个预加载器、n_jobs个数据处理器、主进程负责数据的分发、收集和写入
         self.chunk_loader = ChunkLoader(infile=self.infile, chunk_size=chunk_size, use_async=True,
@@ -191,13 +192,18 @@ class ParallelLine:
         ret = []
         epoch = 1
         while True:
-            if self.chunk_loader.is_eof():
-                break
+            # if self.chunk_loader.is_eof():
+            #     break
+
             # 获取一份数据
             data = self.chunk_loader.get()
 
+            # 加快获取文件末尾的效率
+            if len(data) is 0:
+                print("处理完毕")
+                break
+
             # 处理
-            print("并行化处理")
             if self.order:
                 data1 = self.pool.imap(self.line_func, data, chunksize=self.n_jobs)
             else:
@@ -207,16 +213,13 @@ class ParallelLine:
             epoch += 1
 
             # 返回或写入
-            print("返回的数据进行处理")
-            if self._cache_mode == 'Mem':
+            if self.__cache_mode == 'Mem':
                 ret += data1
             else:
                 for line in data1:
                     self.outfile.write('{}'.format(line))
 
-            print("处理下一批次数据\n\n")
-
-        if self._cache_mode == 'Mem':
+        if self.__cache_mode == 'Mem':
             return ret
 
     def close(self):
