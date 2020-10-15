@@ -249,7 +249,7 @@ class ParallelLine:
         # 列出运行配置
         print("ParallelLine使用配置:")
         prefix = "@run_row:\t"
-        print(prefix + "顺序/乱序处理={}".format(order))
+        print(prefix + "顺序处理={}".format(order))
         print(prefix + "n_jobs={}".format(self.n_jobs))
         print(prefix + "pool_chunksize={}".format(self.__pool_chunk_size))
         print(prefix + "缓存模式={}".format(__cache_mode))
