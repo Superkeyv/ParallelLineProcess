@@ -1,8 +1,7 @@
 from multiprocessing import Manager, Process, Pool, Value, Queue, Lock
-import sys
-import time
 import os
 import progressbar as pb
+import re
 
 
 class ChunkLoader:
@@ -130,11 +129,61 @@ class ChunkLoader:
 def line_proc(data):
     """
     这是一个默认方法，作为ParallelLine的默认行处理方法
-
     我们将这个方法定义为行处理方法， 是需要被复写的行处理方法。
 
+    几个可以参考的文件格式。
+        csv，数值间通过',' ';' 隔开，作为csv文件后缀，可以轻松被支持csv的表格处理程序时别。注意，由于换行方式的不同，数据正确，但是会出现和pandas输出的csv格式不同的情况
+
     :param line: 输入的行
-    :return: 输出的结果，默认是将输入重新传出去
+    :return: 输出的结果，默认是将输入重新传出去。如果返回的是None，则数据不会被写出目标位置
+    """
+
+    return data
+
+
+def chunk2col(data):
+    """
+    这是一个默认方法，用于将chunk块中多行数据分解为对应的列数据。默认的分隔符为',' ':' ';' '|'，这些分隔符都会被应用
+    :return:
+    """
+
+    row_list = []  # 存放经过切分的行列表
+    col_list = []  # 用于存储处理得到的列数据
+    max_col = 0
+
+    for line in data:
+        # 去掉换行符
+        line.replace('\n', '')
+        # 进行字符的切分
+        sp = re.split('[:;, |\n]', line)
+
+        # 记录最大行长度
+        if len(sp) > max_col:
+            max_col = len(sp)
+
+        row_list.append(sp)
+
+    # 准备各列的存储空间
+    for i in range(max_col):
+        col_list.append([])
+
+    # 将行数据存放给列来使用。
+    for j in range(max_col):
+        for row in row_list:
+            if len(row) < j:
+                # 空值处理方法
+                col_list[j].append('')
+            col_list[j].append(row[j])
+
+    return col_list
+
+
+def col_proc(data):
+    """
+    这是一个默认方法，作为ParallelLine的默认列处理方法
+    我们将这个方法定义为列处理方法， 是需要被复写的列处理方法。
+    :param data:
+    :return:
     """
 
     return data
@@ -150,64 +199,65 @@ class ParallelLine:
 
     """
 
-    def __init__(self, in_file, out_file=None, line_func=line_proc, order=False, n_jobs=4,
-                 with_line_num=False, chunk_size=100, show_process_status=True) -> None:
+    def __init__(self, n_jobs=4, chunk_size=100, show_process_status=True) -> None:
         """
         按照行的方式，并行化处理数据的类
 
-        :param in_file: 待处理的文件
-        :param out_file: 处理完毕需要输出的文件。默认为None，代表文件将会输出到内存中。如果为None，那么数据将会以list的方式，逐行存放，并最后返回
-        :param line_func: 用于行处理的方法。方法定义为 def func(data): -> ProcessedLine。其中data部分包含行号信息
-        :param order: 数据的行顺序是否保持不变。True代表行顺序不变，False代表行顺序无所谓
         :param n_jobs: 并行数
-        :param with_line_num: 传递给line_func的数据是否包括行号。如果包括行号，那么传递给line_func的数据为 (line_num, line_data)
         :param chunk_size: 用于指定一次性处理的块大小。建议设置为n_jobs的整数倍
         :param show_process_status: 是否展示处理进度
         """
 
-        self.line_func = line_func
-        self.in_file = in_file
-        self.outfile = out_file
-        self.order = order
         self.n_jobs = n_jobs
-        self.__with_line_num = with_line_num
-        self.__pool_chunksize = chunk_size // n_jobs  # 将chunksize的数据均匀地划分给n_jobs个进程。
+        self.chunk_size = chunk_size
+        self.__pool_chunk_size = chunk_size // n_jobs  # 将chunksize的数据均匀地划分给n_jobs个进程。
         self.__show_process_status = show_process_status
         self.__file_cache = {}  # 文件缓存。每个线程都可以创建自己的文件缓存。字典类型。通过进程号对应
 
-        self.__in_file_size = os.path.getsize(self.in_file.name)
-
-        if self.outfile is None:
-            self.__cache_mode = 'Mem'  # 如果没有打开的输出文件，将使用内存作为缓存区
-        else:
-            self.__cache_mode = 'File'
-
-        # 初始化线程池，包括1个预加载器、n_jobs个数据处理器、主进程负责数据的分发、收集和写入
-        self.chunk_loader = ChunkLoader(infile=self.in_file, chunk_size=chunk_size, use_async=True,
-                                        with_line_num=with_line_num)
-        self.pool = Pool(self.n_jobs)
-
-    def print_prop_info(self):
-        print("ParallelLine使用配置:")
-        prefix = "@ParallelLine:\t"
-        print(prefix + "乱序处理={}".format(self.order))
-        print(prefix + "n_jobs={}".format(self.n_jobs))
-        print(prefix + "pool_chunksize={}".format(self.__pool_chunksize))
-        print(prefix + "缓存模式={}".format(self.__cache_mode))
-        print(prefix + "展示处理进度={}".format(self.__show_process_status))
-        print(prefix + "输入文件大小={} bytes".format(self.__in_file_size))
-
-    def run_row(self):
+    def run_row(self, input_file, output_file=None, row_func=line_proc, with_line_num=False, order=True,
+                use_CRLF=False):
         """
-        对文件进行并行化处理，并最终返回
+        对文件的行并行化处理，并最终返回
+
+        :param in_file: 待处理的文件
+        :param output_file: 处理完毕需要输出的文件。默认为None，代表文件将会输出到内存中。如果为None，那么数据将会以list的方式，逐行存放，并最后返回
+        :param row_func: 用于行处理的方法。方法定义为 def func(data): -> ProcessedLine。其中data部分包含行号信息
+        :param with_line_num: 传递给line_func的数据是否包括行号。如果包括行号，那么传递给line_func的数据为 (line_num, line_data)
+        :param order: 是否按照有序的方式处理数据。True保证处理的顺序，False允许乱序处理
+        :param use_CRLF: 换行模式，由于默认在Linux上运行，换行模式LF为'\n'。在win上，所采用的换行模式CRLF为'\r\n'，即回车换行
         :return: 返回经过处理的结果。如果outfile!=None，那么处理的结果将会直接写入到文件中; 如果outfile=None，这意味着会返回处理List，其中包括经过处理后的所有行
         """
 
+        #### 公共展示信息补充 ####
+        __cache_mode = 'File'
+        if output_file is None:
+            __cache_mode = 'Mem'  # 如果没有打开的输出文件，将使用内存作为缓存区
+
+        # 获取输入文夹的大小
+        __in_file_size = os.path.getsize(input_file.name)
+
+        # 初始化线程池，包括1个预加载器、n_jobs个数据处理器、主进程负责数据的分发、收集和写入
+        chunk_loader = ChunkLoader(input_file, chunk_size=self.chunk_size, use_async=True,
+                                   with_line_num=with_line_num)
+        pool = Pool(self.n_jobs)
+
+        #### 参数初始化 ####
+        line_breaker = '\n'
+        if use_CRLF:
+            line_breaker = '\r\n'
+
         # 列出运行配置
-        self.print_prop_info()
+        print("ParallelLine使用配置:")
+        prefix = "@run_row:\t"
+        print(prefix + "乱序处理={}".format(order))
+        print(prefix + "n_jobs={}".format(self.n_jobs))
+        print(prefix + "pool_chunksize={}".format(self.__pool_chunk_size))
+        print(prefix + "缓存模式={}".format(__cache_mode))
+        print(prefix + "展示处理进度={}".format(self.__show_process_status))
+        print(prefix + "输入文件大小={} bytes".format(__in_file_size))
 
         if self.__show_process_status:
-            self.progressbar = pb.ProgressBar(maxval=self.__in_file_size)
+            self.progressbar = pb.ProgressBar(maxval=__in_file_size)
             self.progressbar.start()
             self.load_file_size = 0
 
@@ -216,12 +266,12 @@ class ParallelLine:
         while True:
 
             # 获取一份数据
-            data = self.chunk_loader.get()
+            data = chunk_loader.get()
 
             # 展示文件的处理进度
             if self.__show_process_status:
                 for line in data:
-                    if self.__with_line_num:
+                    if with_line_num:
                         self.load_file_size += len(line[1])
                     else:
                         self.load_file_size += len(line)
@@ -234,31 +284,171 @@ class ParallelLine:
                 break
 
             # 处理
-            if self.order:
-                data1 = self.pool.imap(self.line_func, data, chunksize=self.n_jobs)
+            if order:
+                data1 = pool.imap(row_func, data, chunksize=self.n_jobs)
             else:
-                data1 = self.pool.imap_unordered(self.line_func, data, chunksize=self.n_jobs)
+                data1 = pool.imap_unordered(row_func, data, chunksize=self.n_jobs)
+
+            # 数据重整，主要是清除返回的数据中存在的None值
+            data2 = []
+            for res in data1:
+                if res is None:
+                    continue
+                data2.append(res)
 
             # 返回或写入
-            if self.__cache_mode == 'Mem':
-                ret += data1
+            if __cache_mode == 'Mem':
+                ret += data2
             else:
-                for line in data1:
-                    self.outfile.write('{}'.format(line))
+                for line in data2:
+                    output_file.write('{}{}'.format(line, line_breaker))
 
-        if self.__cache_mode == 'Mem':
+        # 处理完毕，这里清除一下信息
+        chunk_loader.close()
+        pool.close()
+        pool.join()
+        if __cache_mode == 'Mem':
             return ret
 
-    def close(self):
+    def __run_col(self, input_file, output_file=None, with_cache_file=True, chunk2col_func=chunk2col, col_func=col_proc,
+                with_column_num=True, use_CRLF=False):
         """
-        执行关闭操作
+        对文件的列进行处理。（有列意味着必须有列的分割符号，这里需要写一个行构成的块如何转化为列的处理方法)
+
+        数据按照块的方式进行加载。通过chunk2col进行行数据的切分，同时从行的存储模式转变为列的存储模式
+        col_func用于处理chunk2col方法得到的chunk块的列形式。
+
+        这个方法下，如果不设置输出文件
+
+        todo 该方法还未完善，不建议使用
+
+        :param in_file: 待处理的文件
+        :param output_file: 处理完毕需要输出的文件。默认为None，代表文件将会输出到内存中。如果为None，那么数据将会以list的方式，逐行存放，并最后返回
+        :param with_cache_file: 由于文件体积极大的时候，无法直接将列数据连续存放。因此需要考虑使用临时文件存放的方式
+        :param chunk2col_func: 将一个块中的行数据转换切分为列的方式存放
+        :param col_func: 用于列数据处理的方法。每次一个列给该方法，列带有对应的列号。得到的参数结构为(col_num, col_value)。返回数据时要求结构为(col_num,pd_col_value)
+        :param with_column_num: 传递给line_func的数据是否包括列的编号。如果True，那么传递给col_func的数据为 (col_num, col_data)。注意col_num从1开始
+        :param use_CRLF: 换行模式，由于默认在Linux上运行，换行模式LF为'\n'。在win上，所采用的换行模式CRLF为'\r\n'，即回车换行
+        :return: 返回经过处理的结果。如果outfile!=None，那么处理的结果将会直接写入到文件中; 如果outfile=None，这意味着会返回处理List，其中包括经过处理后的所有行
         :return:
         """
-        self.chunk_loader.close()
 
-        # 等待pool任务执行完毕
-        self.pool.close()
-        self.pool.join()
+        #### 公共展示信息补充 ####
+        __cache_mode = 'File'
+        if output_file is None:
+            __cache_mode = 'Mem'  # 如果没有打开的输出文件，将使用内存作为缓存区
+
+        if __cache_mode is 'File':
+            # 创建缓存文件夹
+            if not os.path.exists('tmp'):
+                os.mkdir('tmp')
+
+        # 获取输入文夹的大小
+        __in_file_size = os.path.getsize(input_file.name)
+
+        # 初始化线程池，包括1个预加载器、n_jobs个数据处理器、主进程负责数据的分发、收集和写入
+        chunk_loader = ChunkLoader(input_file, chunk_size=self.chunk_size, use_async=True,
+                                   with_line_num=with_column_num)
+        pool = Pool(self.n_jobs)
+
+        #### 参数初始化 ####
+        line_breaker = '\n'
+        if use_CRLF:
+            line_breaker = '\r\n'
+
+        # 列出运行配置
+        print("ParallelLine使用配置:")
+        prefix = "@run_col:\t"
+        print(prefix + "n_jobs={}".format(self.n_jobs))
+        print(prefix + "pool_chunksize={}".format(self.__pool_chunk_size))
+        print(prefix + "缓存模式={}".format(__cache_mode))
+        print(prefix + "缓存文件器用={} bytes".format(with_cache_file))
+        print(prefix + "展示处理进度={}".format(self.__show_process_status))
+        print(prefix + "输入文件大小={} bytes".format(__in_file_size))
+
+        ret = []
+        # 处理到最后，ret中最多i几行，最多几列
+        ret_rows = 0
+        ret_cols = 0
+
+        while True:
+            data = chunk_loader.get()
+
+            # 加快获取文件末尾的效率
+            if len(data) is 0:
+                print("处理完毕")
+                break
+
+            # 行数据转换为切分过的列数据
+            data1 = chunk2col_func(data)
+            # 为每列添加列编号
+            data2 = []
+            for i, col in data1:
+                data2.append((i + 1, col))
+
+            # 按照col_func方法并行处理列数据。这里有可能是数据写入。需要外部提供方法指定
+            data2 = pool.imap(col_func, data2, chunksize=self.n_jobs)
+
+            # data2转存，同时更新ret_cols和ret_rows
+            data3 = []
+            for col_c in data2:
+                assert len(col_c) is 2, "col_func方法的返回结果长度应该为2,收到错误的返回长度"
+                col_num = col_c[0]
+                col = col_c[1]
+                if ret_rows < len(col):
+                    ret_rows = len(col)
+                data3.append(col)
+
+            if ret_cols < len(data3):
+                ret_cols = len(data3)
+
+            # 进行数据的合并
+            if __cache_mode is 'Mem':
+                # 如果缓冲模式是内存缓冲，那么将数据写给ret。ret保存有每个chunk的数据，经过其他步骤整合得到最终的结果
+                ret.append(data3)
+            else:
+                # 行数据写入到缓存文件中，其中文件名就是行号
+                for (col_num, col_value) in data2:
+                    with open('tmp/{}'.format(col_num), 'a+') as f:
+                        f.write(col_value)
+
+        # 处理完毕，这里清除一下信息
+        chunk_loader.close()
+        pool.close()
+        pool.join()
+        if __cache_mode == 'Mem':
+            # 将ret中的数据进行整合，最终符合列关系
+            tmp = []
+            # 构造所有的列
+            for i in range(ret_cols):
+                tmp.append([])
+
+            for chunk in ret:
+                c_chunk_max_row = 0
+
+                # 获取当前chunk的最大行数，用于后续数据的补齐工作
+                for col in chunk:
+                    if c_chunk_max_row < len(col):
+                        c_chunk_max_row = len(col)
+
+                for col_num in range(ret_cols):
+                    # 如果列号超过了数据范围，那么主动补充空值
+                    if col_num > len(chunk):
+                        for i in range(c_chunk_max_row):
+                            tmp[col_num].append('')
+                        continue
+
+                    for row_num in range(c_chunk_max_row):
+                        if row_num > len(chunk[col_num]):
+                            tmp[col_num].append('')
+                        tmp[col_num].append(chunk[col_num][row_num])
+
+            return tmp
+        else:
+            # 对应处理__cache_mode == 'file'
+            for i in range(1, ret_cols + 1):
+                with open('tmp/{}'.format(i),'r'):
+                    output_file.write()
 
 
 # Press the green button in the gutter to run the script.

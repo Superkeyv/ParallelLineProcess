@@ -41,7 +41,7 @@ class TestLineProcessor(TestCase):
         lineProcessor.run_row()
 
         print("数据处理完毕")
-        lineProcessor.close()
+        lineProcessor.__close()
         out.close()
         f.close()
 
