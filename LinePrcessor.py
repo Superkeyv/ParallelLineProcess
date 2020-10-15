@@ -189,6 +189,25 @@ def col_proc(data):
     return data
 
 
+def file_line_count(fname):
+    '''
+    用于确认文件有多少行
+    :param f: 所打开的文件名
+    :return: 该文件存在的行数
+    '''
+    line_num = 0
+    with open(fname, 'r') as f:
+        while (True):
+            buf = f.read(4 * 1024 * 1024)
+            if (buf == ''):
+                break
+
+            line_num += buf.count('\n')
+
+        f.close()
+    return line_num
+
+
 class ParallelLine:
     """
     这是文本文件的并行化处理器。
@@ -214,12 +233,12 @@ class ParallelLine:
         self.__show_process_status = show_process_status
         self.__file_cache = {}  # 文件缓存。每个线程都可以创建自己的文件缓存。字典类型。通过进程号对应
 
-    def run_row(self, input_file, output_file=None, row_func=line_proc, with_line_num=False, order=True,
+    def run_row(self, input_file_name, output_file_name=None, row_func=line_proc, with_line_num=False, order=True,
                 use_CRLF=False):
         """
         对文件的行并行化处理，并最终返回
 
-        :param in_file: 待处理的文件
+        :param in_file: 待处理的文件名。使用文件名的形式，可以提供多次读取的优势
         :param output_file: 处理完毕需要输出的文件。默认为None，代表文件将会输出到内存中。如果为None，那么数据将会以list的方式，逐行存放，并最后返回
         :param row_func: 用于行处理的方法。方法定义为 def func(data): -> ProcessedLine。其中data部分包含行号信息
         :param with_line_num: 传递给line_func的数据是否包括行号。如果包括行号，那么传递给line_func的数据为 (line_num, line_data)
@@ -227,6 +246,10 @@ class ParallelLine:
         :param use_CRLF: 换行模式，由于默认在Linux上运行，换行模式LF为'\n'。在win上，所采用的换行模式CRLF为'\r\n'，即回车换行
         :return: 返回经过处理的结果。如果outfile!=None，那么处理的结果将会直接写入到文件中; 如果outfile=None，这意味着会返回处理List，其中包括经过处理后的所有行
         """
+
+        # 在文件内部打开
+        input_file=open(input_file_name,'r')
+        output_file=open(output_file_name,'w')
 
         #### 公共展示信息补充 ####
         __cache_mode = 'File'
