@@ -8,12 +8,14 @@ class ChunkLoader:
     """
     这个是数据预加载器。按照要求进行数据的加载
     这个程序会维持一个加载队列，当主进程处理其他数据时，会使用另外一个进行继续数据的加载
+
+    todo 1 是否可以增加一个迭代器方式的读取
     """
 
-    def __init__(self, infile, chunk_size=1000, use_async=True, with_line_num=False) -> None:
+    def __init__(self, in_file_name, chunk_size=1000, use_async=True, with_line_num=False) -> None:
         """
         数据加载器初始化
-        :param infile: 需要读取的文件
+        :param in_file_name: 需要读取的文件名
         :param chunk_size: 一次加载的行数量
         :param use_async: 是否使用额外线程进行数据的异步加载
         :param with_line_num: 加载的数据List是否包括行号信息，如果True，则返回的List结构为 [(1,"xxx"),(2,"xxx"),(3,"xxx"),...]
@@ -21,7 +23,7 @@ class ChunkLoader:
 
         # assert (infile.readable(), "文件无法读取")
 
-        self.infile = infile
+        self.infile = open(in_file_name, 'r')
         self.chunk_size = chunk_size
         self.use_async = use_async
         self.EOF = False  # 代表文件已经读取完毕。该项由读取函数处理，从读取完毕得到[]作为标志触发
@@ -34,6 +36,7 @@ class ChunkLoader:
     def __read_a_chunk(self):
         """
         读取一个chunk行的文本。如果已经读取到文件的末尾，那么再次调用本方法将会返回[]
+        读取的行将会清除掉'\n'符号
         :return:
         """
         tmp = []
@@ -41,6 +44,9 @@ class ChunkLoader:
             line = self.infile.readline()
             if line == '':
                 break
+            # 清除掉换行符
+            line = line.replace('\r\n', '')
+            line = line.replace('\n', '')
             self.LineNum.value += 1
 
             if self.with_line_num:
@@ -120,6 +126,7 @@ class ChunkLoader:
         return ret
 
     def close(self):
+        self.infile.close()
         if hasattr(self, 'process'):
             # 等待process的后续任务做完
             self.process.join()
@@ -248,8 +255,7 @@ class ParallelLine:
         """
 
         # 在文件内部打开
-        input_file=open(input_file_name,'r')
-        output_file=open(output_file_name,'w')
+        output_file = open(output_file_name, 'w')
 
         #### 公共展示信息补充 ####
         __cache_mode = 'File'
@@ -257,10 +263,10 @@ class ParallelLine:
             __cache_mode = 'Mem'  # 如果没有打开的输出文件，将使用内存作为缓存区
 
         # 获取输入文夹的大小
-        __in_file_size = os.path.getsize(input_file.name)
+        __in_file_size = os.path.getsize(input_file_name)
 
         # 初始化线程池，包括1个预加载器、n_jobs个数据处理器、主进程负责数据的分发、收集和写入
-        chunk_loader = ChunkLoader(input_file, chunk_size=self.chunk_size, use_async=True,
+        chunk_loader = ChunkLoader(input_file_name, chunk_size=self.chunk_size, use_async=True,
                                    with_line_num=with_line_num)
         pool = Pool(self.n_jobs)
 
@@ -330,11 +336,15 @@ class ParallelLine:
         chunk_loader.close()
         pool.close()
         pool.join()
+
+        # 关闭打开的文件
+        output_file.close()
         if __cache_mode == 'Mem':
             return ret
 
-    def __run_col(self, input_file, output_file=None, with_cache_file=True, chunk2col_func=chunk2col, col_func=col_proc,
-                with_column_num=True, use_CRLF=False):
+    def __run_col(self, input_file_name, output_file_name=None, with_cache_file=True, chunk2col_func=chunk2col,
+                  col_func=col_proc,
+                  with_column_num=True, use_CRLF=False):
         """
         对文件的列进行处理。（有列意味着必须有列的分割符号，这里需要写一个行构成的块如何转化为列的处理方法)
 
@@ -344,9 +354,13 @@ class ParallelLine:
         这个方法下，如果不设置输出文件
 
         todo 该方法还未完善，不建议使用
+        todo 1 使用外部行拆分程序，进行行切割
+        todo 2 并行方式集中在多列的并行化处理方面，借助chunkloader多次加载文件，在一个文件读取周期内处理多行。将多行的处理结果批次写入系统
+        todo 3 存在模式2,一次读取文件，完成所有列的处理。可以参考各列写缓存的思路，最终将缓存合并，构成最终文件
+        todo 4 需要准备3个方法，行的分割方法，chunk行块的处理方法，chunk行块返回结果的合并方法。（预处理、处理、后处理）
 
-        :param in_file: 待处理的文件
-        :param output_file: 处理完毕需要输出的文件。默认为None，代表文件将会输出到内存中。如果为None，那么数据将会以list的方式，逐行存放，并最后返回
+        :param input_file_name: 待处理的文件名
+        :param output_file_name: 处理完毕需要输出的文件名。默认为None，代表文件将会输出到内存中。如果为None，那么数据将会以list的方式，逐行存放，并最后返回
         :param with_cache_file: 由于文件体积极大的时候，无法直接将列数据连续存放。因此需要考虑使用临时文件存放的方式
         :param chunk2col_func: 将一个块中的行数据转换切分为列的方式存放
         :param col_func: 用于列数据处理的方法。每次一个列给该方法，列带有对应的列号。得到的参数结构为(col_num, col_value)。返回数据时要求结构为(col_num,pd_col_value)
@@ -355,11 +369,14 @@ class ParallelLine:
         :return: 返回经过处理的结果。如果outfile!=None，那么处理的结果将会直接写入到文件中; 如果outfile=None，这意味着会返回处理List，其中包括经过处理后的所有行
         :return:
         """
-
+        input_file = open(input_file_name, 'r')
+        output_file = None
         #### 公共展示信息补充 ####
         __cache_mode = 'File'
-        if output_file is None:
+        if output_file_name is None:
             __cache_mode = 'Mem'  # 如果没有打开的输出文件，将使用内存作为缓存区
+        else:
+            output_file = open(output_file_name, 'w')
 
         if __cache_mode is 'File':
             # 创建缓存文件夹
@@ -439,7 +456,7 @@ class ParallelLine:
         chunk_loader.close()
         pool.close()
         pool.join()
-        if __cache_mode == 'Mem':
+        if __cache_mode is 'Mem':
             # 将ret中的数据进行整合，最终符合列关系
             tmp = []
             # 构造所有的列
@@ -470,8 +487,12 @@ class ParallelLine:
         else:
             # 对应处理__cache_mode == 'file'
             for i in range(1, ret_cols + 1):
-                with open('tmp/{}'.format(i),'r'):
-                    output_file.write()
+                with open('tmp/{}'.format(i), 'r'):
+                    output_file.write('\n')
+
+        input_file.close()
+        if output_file != None:
+            output_file.close()
 
 
 # Press the green button in the gutter to run the script.

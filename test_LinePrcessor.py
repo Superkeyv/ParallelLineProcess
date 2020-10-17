@@ -4,14 +4,13 @@ from LinePrcessor import ChunkLoader, ParallelLine
 
 import time
 
-f = open('sample.vcf', 'r')
-out = open('sample_test.vcf', 'w')
-
 
 class Testchunkloader(TestCase):
-    loader = ChunkLoader(infile=f, chunk_size=71, use_async=True, with_line_num=True)
+    loader = ChunkLoader(in_file_name='sample.vcf', chunk_size=71, use_async=True,
+                         with_line_num=False)
 
     def test_get(self):
+        out = open('sample.vcf.test1', 'w')
         num_line = 0
         epoch = 0
 
@@ -25,29 +24,18 @@ class Testchunkloader(TestCase):
             print("epoch:[{}]".format(epoch))
 
             for line in data:
-                out.write("{}".format(line))
+                out.write("{}\n".format(line))
 
         print("共计读取{}行".format(num_line))
 
         self.loader.close()
         out.close()
-        f.close()
 
 
 class TestLineProcessor(TestCase):
     def test_process(self):
-        lineProcessor = ParallelLine(in_file=f, out_file=out, order=True, n_jobs=4, chunk_size=5, with_line_num=False)
+        lineProcessor = ParallelLine(n_jobs=4, chunk_size=5)
 
-        lineProcessor.run_row()
+        lineProcessor.run_row(input_file_name='sample.vcf', output_file_name='sample.vcf.test')
 
         print("数据处理完毕")
-        lineProcessor.__close()
-        out.close()
-        f.close()
-
-    def test_2(self):
-        f2 = open('/home/karma/Sync_folder/code/python/ParallelLineProcess/a.txt', 'r')
-
-        print(f2.name)
-
-        f2.close()
