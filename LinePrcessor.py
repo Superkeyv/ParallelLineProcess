@@ -37,9 +37,12 @@ class ChunkLoader:
         """
         读取一个chunk行的文本。如果已经读取到文件的末尾，那么再次调用本方法将会返回[]
         读取的行将会清除掉'\n'符号
-        :return:
+
+        :return: 如果包括行号，返回结构为[[line_nums],[line_datas]]；如果不包括行号，返回结果为[line_datas]
         """
-        tmp = []
+
+        line_nums = []
+        line_datas = []
         for i in range(self.chunk_size):
             line = self.infile.readline()
             if line == '':
@@ -49,11 +52,13 @@ class ChunkLoader:
             line = line.replace('\n', '')
             self.LineNum.value += 1
 
-            if self.with_line_num:
-                tmp.append((self.LineNum.value, line))
-            else:
-                tmp.append(line)
-        return tmp
+            line_nums.append(self.LineNum)
+            line_datas.append(line)
+
+        if self.with_line_num:
+            return [line_nums, line_datas]
+        else:
+            return line_datas
 
     def __read_async(self):
         """
@@ -102,7 +107,6 @@ class ChunkLoader:
         """返回已经加载好的数据
         :return: 获取行的List形式。如果返回[]，代表数据已经读取完毕
         """
-
         ret = []
 
         # 保证文件读取完毕，不会再次进入循环
