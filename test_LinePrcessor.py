@@ -7,7 +7,7 @@ import time
 
 class Testchunkloader(TestCase):
     loader = ChunkLoader(in_file_name='sample.vcf', chunk_size=71, use_async=True,
-                         with_line_num=False)
+                         with_line_num=True)
 
     def test_get(self):
         out = open('sample.vcf.test1', 'w')

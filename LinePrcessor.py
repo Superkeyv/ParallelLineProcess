@@ -1,7 +1,9 @@
-from multiprocessing import Manager, Process, Pool, Value, Queue, Lock
+from multiprocessing import Process, Pool, Queue
 import os
 import progressbar as pb
 import re
+# todo 转变为基于joblib的并行方法，以及数据缓存方法。尝试是否有关于减少内存占用的方法。
+from joblib import Parallel, Memory
 
 
 class ChunkLoader:
@@ -31,34 +33,27 @@ class ChunkLoader:
 
         # 用于进程间数据共享
         self.ram_cache = Queue(maxsize=1)  # 最大容量为1的队列
-        self.LineNum = Value('l', 0)  # 记录当前读取的行号
+        self.LineNum = 0  # 记录已经传出数据的行号
 
     def __read_a_chunk(self):
         """
         读取一个chunk行的文本。如果已经读取到文件的末尾，那么再次调用本方法将会返回[]
         读取的行将会清除掉'\n'符号
 
-        :return: 如果包括行号，返回结构为[[line_nums],[line_datas]]；如果不包括行号，返回结果为[line_datas]
+        :return: 注意，这里的数据不能进行二级包装。这是由于Queue数据的引用方式造成的
         """
-
-        line_nums = []
         line_datas = []
+        # 对行数据进一步处理
         for i in range(self.chunk_size):
             line = self.infile.readline()
-            if line == '':
+            if line is '':
                 break
             # 清除掉换行符
-            line = line.replace('\r\n', '')
-            line = line.replace('\n', '')
-            self.LineNum.value += 1
-
-            line_nums.append(self.LineNum)
+            line = line.strip('\r\n')
+            line = line.strip('\n')
             line_datas.append(line)
 
-        if self.with_line_num:
-            return [line_nums, line_datas]
-        else:
-            return line_datas
+        return line_datas
 
     def __read_async(self):
         """
@@ -124,10 +119,20 @@ class ChunkLoader:
             # print('read_sync')
             ret = self.read_sync()
 
+        # 判断文件是否读取结束
         if len(ret) is 0:
             self.EOF = True
 
-        return ret
+        # 包装行号
+        tmp = []
+        if self.with_line_num:
+            tmp.append(range(self.LineNum, self.LineNum + len(ret)))
+            tmp.append(ret)
+            self.LineNum += len(ret)
+        else:
+            tmp = ret
+
+        return tmp
 
     def close(self):
         self.infile.close()
@@ -217,6 +222,16 @@ def file_line_count(fname):
 
         f.close()
     return line_num
+
+
+class PList(list):
+    """
+    PList的作用是面对特大List时，能够在尽可能节约内存的情况下实现对列表数据的顺序访问。目前先实现str的缓存方式
+
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
 
 
 class ParallelLine:
@@ -497,6 +512,7 @@ class ParallelLine:
         input_file.close()
         if output_file != None:
             output_file.close()
+
 
     def __run_block(self, input_file_name, output_file_name, block_size=(0, 0), split_func=chunk2col,
                     block_func=col_proc, use_CRLF=False):
