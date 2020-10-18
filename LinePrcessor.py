@@ -498,6 +498,26 @@ class ParallelLine:
         if output_file != None:
             output_file.close()
 
+    def __run_block(self, input_file_name, output_file_name, block_size=(0, 0), split_func=chunk2col,
+                    block_func=col_proc, use_CRLF=False):
+        """
+        这个是新的并行处理思路。内容包括数据的读取，任务分发，结果聚合写入。
+        核心思想是突出数据的块化处理 ，将data_loader的chunk块进一步按照列进行切分。得到许多小block，每个小block结构为([row_nums],[col_nums],[data])
+
+        :param input_file_name: 待处理的文件名称
+        :param output_file_name: 结果输出的文件名
+        :param block_size: 将表格拆分成的block大小
+        :param split_func: 每一行数据的具体拆分方法
+        :param block_func: 每一个block的处理方法
+        :param use_CRLF: 写出数据是否采用CRLF方式进行换行
+        :return:
+        """
+
+        #### 参数初始化 ####
+        line_breaker = '\n'
+        if use_CRLF:
+            line_breaker = '\r\n'
+
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
