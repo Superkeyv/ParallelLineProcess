@@ -39,3 +39,11 @@ class TestLineProcessor(TestCase):
         lineProcessor.run_row(input_file_name='sample.vcf', output_file_name='sample.vcf.test')
 
         print("数据处理完毕")
+
+
+class TestPQueue(TestCase):
+    def test_put(self):
+        self.fail()
+
+    def test_get(self):
+        self.fail()

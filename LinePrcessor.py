@@ -1,9 +1,8 @@
 from multiprocessing import Process, Pool, Queue
 import os
+import time
 import progressbar as pb
 import re
-# todo 转变为基于joblib的并行方法，以及数据缓存方法。尝试是否有关于减少内存占用的方法。
-from joblib import Parallel, Memory
 
 
 class ChunkLoader:
@@ -223,15 +222,6 @@ def file_line_count(fname):
         f.close()
     return line_num
 
-
-class PList(list):
-    """
-    PList的作用是面对特大List时，能够在尽可能节约内存的情况下实现对列表数据的顺序访问。目前先实现str的缓存方式
-
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
 
 
 class ParallelLine:
@@ -513,7 +503,6 @@ class ParallelLine:
         if output_file != None:
             output_file.close()
 
-
     def __run_block(self, input_file_name, output_file_name, block_size=(0, 0), split_func=chunk2col,
                     block_func=col_proc, use_CRLF=False):
         """
@@ -534,7 +523,6 @@ class ParallelLine:
         if use_CRLF:
             line_breaker = '\r\n'
 
-
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print("hi")
+    # Press the green button in the gutter to run the script.
+    if __name__ == '__main__':
+        print("hi")
