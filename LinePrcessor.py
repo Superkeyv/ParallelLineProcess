@@ -79,7 +79,7 @@ class ChunkLoader:
         # 对行数据进一步处理
         for i in range(self.chunk_size):
             line = self.infile.readline()
-            if line is '':
+            if line == '':
                 break
             # 清除掉换行符
             line = line.strip('\r\n')
@@ -100,7 +100,7 @@ class ChunkLoader:
 
             # 文件是否读取完毕，当读取完毕后，最后一批数据(包括[]值)发送完毕，这里获取EOF状态，并结束进程的运行
             # 这里不能以EOF状态为结束标志，存在情况，最后一次数据没有读满，但EOF=true，这会造成主进程不清楚辅助进程已经结束。因此，这里多读取一次，保证发送一个[]给队列读取者
-            if len(tmp) is 0:
+            if len(tmp) == 0:
                 break
 
     def read_async(self):
@@ -153,7 +153,7 @@ class ChunkLoader:
             ret = self.read_sync()
 
         # 判断文件是否读取结束
-        if len(ret) is 0:
+        if len(ret) == 0:
             self.EOF = True
 
         # 包装行号
@@ -301,7 +301,7 @@ class ParallelLine:
 
         #### 公共展示信息补充 ####
         __cache_mode = 'File'
-        if output_file is None:
+        if output_file == None:
             __cache_mode = 'Mem'  # 如果没有打开的输出文件，将使用内存作为缓存区
 
         # 获取输入文夹的大小。
@@ -356,7 +356,7 @@ class ParallelLine:
                     self.progressbar.update(self.load_file_size)
 
             # 加快获取文件末尾的效率
-            if len(data) is 0:
+            if len(data) == 0:
                 print("处理完毕")
                 if self.__show_process_status:
                     self.progressbar.finish()
@@ -371,7 +371,7 @@ class ParallelLine:
             # 数据重整，主要是清除返回的数据中存在的None值
             data2 = []
             for res in data1:
-                if res is None:
+                if res == None:
                     continue
                 data2.append(res)
 
@@ -423,12 +423,12 @@ class ParallelLine:
         output_file = None
         #### 公共展示信息补充 ####
         __cache_mode = 'File'
-        if output_file_name is None:
+        if output_file_name == None:
             __cache_mode = 'Mem'  # 如果没有打开的输出文件，将使用内存作为缓存区
         else:
             output_file = open(output_file_name, 'w')
 
-        if __cache_mode is 'File':
+        if __cache_mode == 'File':
             # 创建缓存文件夹
             if not os.path.exists('tmp'):
                 os.mkdir('tmp')
@@ -465,7 +465,7 @@ class ParallelLine:
             data = chunk_loader.get()
 
             # 加快获取文件末尾的效率
-            if len(data) is 0:
+            if len(data) == 0:
                 print("处理完毕")
                 break
 
@@ -482,7 +482,7 @@ class ParallelLine:
             # data2转存，同时更新ret_cols和ret_rows
             data3 = []
             for col_c in data2:
-                assert len(col_c) is 2, "col_func方法的返回结果长度应该为2,收到错误的返回长度"
+                assert len(col_c) == 2, "col_func方法的返回结果长度应该为2,收到错误的返回长度"
                 col_num = col_c[0]
                 col = col_c[1]
                 if ret_rows < len(col):
@@ -493,7 +493,7 @@ class ParallelLine:
                 ret_cols = len(data3)
 
             # 进行数据的合并
-            if __cache_mode is 'Mem':
+            if __cache_mode == 'Mem':
                 # 如果缓冲模式是内存缓冲，那么将数据写给ret。ret保存有每个chunk的数据，经过其他步骤整合得到最终的结果
                 ret.append(data3)
             else:
@@ -506,7 +506,7 @@ class ParallelLine:
         chunk_loader.close()
         pool.close()
         pool.join()
-        if __cache_mode is 'Mem':
+        if __cache_mode == 'Mem':
             # 将ret中的数据进行整合，最终符合列关系
             tmp = []
             # 构造所有的列
