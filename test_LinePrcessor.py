@@ -6,7 +6,7 @@ import time
 
 
 class Testchunkloader(TestCase):
-    loader = ChunkLoader(in_file_name='sample.vcf', chunk_size=71, use_async=True,
+    loader = ChunkLoader(input_file_name='sample.vcf', chunk_size=71, use_async=True,
                          with_line_num=True)
 
     def test_get(self):
@@ -36,7 +36,14 @@ class TestLineProcessor(TestCase):
     def test_process(self):
         lineProcessor = ParallelLine(n_jobs=4, chunk_size=5)
 
-        lineProcessor.run_row(input_file_name='sample.vcf', output_file_name='sample.vcf.test')
+        lineProcessor.run_row(input_file_name='sample.vcf', output_file_name='sample.vcf.test1')
+
+        print("数据处理完毕")
+
+    def test_run_row_gz(self):
+        lineProcessor = ParallelLine(n_jobs=4, chunk_size=5)
+
+        lineProcessor.run_row(input_file_name='sample.vcf.gz', output_file_name='sample.vcf.test1')
 
         print("数据处理完毕")
 

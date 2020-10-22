@@ -14,7 +14,7 @@ def assume_gzip_origin_size(filename, test_bytes=20 * 1024 * 1024):
     :param test_bytes: 需要测试解压出字节数，如果输入-1，代表整个文件解压
     :return:
     """
-    assert filename.endwith('.gz'), "输入的文件:{}，不是gzip文件".format(filename)
+    assert filename.endswith('.gz'), "输入的文件:{}，不是gzip文件".format(filename)
     file = open(filename, 'rb')
     gz_file = gzip.GzipFile(fileobj=file)
 
@@ -42,21 +42,22 @@ class ChunkLoader:
     todo 1 是否可以增加一个迭代器方式的读取
     """
 
-    def __init__(self, in_file_name, chunk_size=1000, use_async=True, with_line_num=False) -> None:
+    def __init__(self, input_file_name, chunk_size=1000, use_async=True, with_line_num=False) -> None:
         """
         数据加载器初始化
-        :param in_file_name: 需要读取的文件名
+        :param input_file_name: 需要读取的文件名
         :param chunk_size: 一次加载的行数量
         :param use_async: 是否使用额外线程进行数据的异步加载
         :param with_line_num: 加载的数据List是否包括行号信息，如果True，则返回的List结构为 [(1,"xxx"),(2,"xxx"),(3,"xxx"),...]
         """
 
         # assert (infile.readable(), "文件无法读取")
-
-        if in_file_name.endwith('.gz'):
-            self.infile = gzip.open(in_file_name, 'rt')
+        if input_file_name.endswith('.vcf'):
+            self.infile = open(input_file_name, 'r')
+        elif input_file_name.endswith('.gz'):
+            self.infile = gzip.open(input_file_name, 'rt')
         else:
-            self.infile=open(in_file_name, 'rt')
+            self.infile = open(input_file_name, 'r')
 
         self.chunk_size = chunk_size
         self.use_async = use_async
@@ -165,7 +166,6 @@ class ChunkLoader:
             tmp = ret
 
         return tmp
-
 
     def close(self):
         self.infile.close()
@@ -304,8 +304,12 @@ class ParallelLine:
         if output_file is None:
             __cache_mode = 'Mem'  # 如果没有打开的输出文件，将使用内存作为缓存区
 
-        # 获取输入文夹的大小
-        __in_file_size = os.path.getsize(input_file_name)
+        # 获取输入文夹的大小。
+        __in_file_size = 0
+        if input_file_name.endswith('.vcf'):
+            __in_file_size = os.path.getsize(input_file_name)
+        elif input_file_name.endswith('.gz'):
+            __in_file_size = assume_gzip_origin_size(input_file_name)
 
         # 初始化线程池，包括1个预加载器、n_jobs个数据处理器、主进程负责数据的分发、收集和写入
         chunk_loader = ChunkLoader(input_file_name, chunk_size=self.chunk_size, use_async=True,
@@ -346,12 +350,16 @@ class ParallelLine:
                         self.load_file_size += len(line[1])
                     else:
                         self.load_file_size += len(line)
-                self.progressbar.update(self.load_file_size)
+                if self.__show_process_status:
+                    if self.load_file_size > __in_file_size:
+                        self.load_file_size = __in_file_size
+                    self.progressbar.update(self.load_file_size)
 
             # 加快获取文件末尾的效率
             if len(data) is 0:
                 print("处理完毕")
-                self.progressbar.finish()
+                if self.__show_process_status:
+                    self.progressbar.finish()
                 break
 
             # 处理
@@ -429,7 +437,7 @@ class ParallelLine:
         __in_file_size = os.path.getsize(input_file.name)
 
         # 初始化线程池，包括1个预加载器、n_jobs个数据处理器、主进程负责数据的分发、收集和写入
-        chunk_loader = ChunkLoader(input_file, chunk_size=self.chunk_size, use_async=True,
+        chunk_loader = ChunkLoader(input_file_name, chunk_size=self.chunk_size, use_async=True,
                                    with_line_num=with_column_num)
         pool = Pool(self.n_jobs)
 
