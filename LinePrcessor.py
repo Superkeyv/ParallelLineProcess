@@ -6,6 +6,34 @@ import re
 import gzip
 
 
+def assume_gzip_origin_size(filename, test_bytes=20 * 1024 * 1024):
+    """
+    该函数用于估计gzip文件的原始大小，通过尝试解压20M数据，比对gz文件读取量和解压出数据的字节数。得到近似压缩比
+    通过估算，最后得到gzip文件的近似原始大小
+    :param filename: 需要估计的gz文件路径
+    :param test_bytes: 需要测试解压出字节数，如果输入-1，代表整个文件解压
+    :return:
+    """
+    assert filename.endwith('.gz'), "输入的文件:{}，不是gzip文件".format(filename)
+    file = open(filename, 'rb')
+    gz_file = gzip.GzipFile(fileobj=file)
+
+    gz_file.read(test_bytes)
+
+    s1 = gz_file.tell()
+    if test_bytes == -1:
+        # 这个代表整个压缩文件都解压了
+        gz_file.close()
+        file.close()
+        return s1
+
+    s2 = file.tell()
+    gz_file_size = os.path.getsize(filename)
+    gz_file.close()
+    file.close()
+    return gz_file_size * s1 / s2
+
+
 class ChunkLoader:
     """
     这个是数据预加载器。按照要求进行数据的加载
