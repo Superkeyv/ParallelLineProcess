@@ -3,6 +3,7 @@ import os
 import time
 import progressbar as pb
 import re
+import gzip
 
 
 class ChunkLoader:
@@ -24,7 +25,11 @@ class ChunkLoader:
 
         # assert (infile.readable(), "文件无法读取")
 
-        self.infile = open(in_file_name, 'r')
+        if in_file_name.endwith('.gz'):
+            self.infile = gzip.open(in_file_name, 'rt')
+        else:
+            self.infile=open(in_file_name, 'rt')
+
         self.chunk_size = chunk_size
         self.use_async = use_async
         self.EOF = False  # 代表文件已经读取完毕。该项由读取函数处理，从读取完毕得到[]作为标志触发
@@ -133,6 +138,7 @@ class ChunkLoader:
 
         return tmp
 
+
     def close(self):
         self.infile.close()
         if hasattr(self, 'process'):
@@ -221,7 +227,6 @@ def file_line_count(fname):
 
         f.close()
     return line_num
-
 
 
 class ParallelLine:
